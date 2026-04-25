@@ -41,7 +41,7 @@ import sys
 import unicodedata
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -86,6 +86,9 @@ class Config:
     # Paths (filled in at runtime)
     filings_dir: str = "data/filings"
     cache_dir: str = ".cache"
+
+    # Smoke-test knob — process only the first N filings (None = all)
+    max_files: Optional[int] = None
 
 
 CONFIG = Config()
@@ -401,6 +404,9 @@ def build_index(filings_dir: str, cache_dir: str, cfg: Config = CONFIG) -> Index
         paths = sorted(set(paths))
         if not paths:
             raise FileNotFoundError(f"No HTML filings found under {filings_dir}")
+        if cfg.max_files is not None:
+            paths = paths[: cfg.max_files]
+            print(f"[smoke-test] max_files={cfg.max_files} — processing only first {len(paths)} filings")
         print(f"[build] extracting Items {cfg.allowed_items} from {len(paths)} filings…")
         section_rows = []
         for p in paths:
@@ -680,7 +686,7 @@ def _cmd_eval(args) -> int:
 
 def _cfg_from_args(args) -> Config:
     cfg = Config()
-    for k in ("chunk_tokens", "chunk_overlap", "top_k", "min_sim", "embed_model", "llm_backend"):
+    for k in ("chunk_tokens", "chunk_overlap", "top_k", "min_sim", "embed_model", "llm_backend", "max_files"):
         v = getattr(args, k, None)
         if v is not None:
             setattr(cfg, k, v)
@@ -698,6 +704,7 @@ def _add_common(p: argparse.ArgumentParser) -> None:
     p.add_argument("--min-sim", type=float, help="refuse-below-this cosine threshold")
     p.add_argument("--embed-model", help="sentence-transformers model name")
     p.add_argument("--llm-backend", choices=["openai", "gemini", "mock"], help="LLM for generation")
+    p.add_argument("--max-files", type=int, help="smoke-test: process only first N filings")
 
 
 def main(argv: list[str] | None = None) -> int:
