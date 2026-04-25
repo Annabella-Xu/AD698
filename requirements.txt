@@ -1,0 +1,25 @@
+# Core RAG stack — pinned to versions verified in Colab as of April 2026
+sentence-transformers==3.0.1
+faiss-cpu==1.8.0
+tiktoken==0.7.0
+
+# HTML parsing
+beautifulsoup4==4.12.3
+lxml==5.2.2
+
+# Data handling
+pandas==2.2.2
+numpy<2
+rapidfuzz==3.9.6
+
+# LLM backends (both optional; notebook falls back to 'mock' if keys missing)
+openai==1.40.0
+google-generativeai==0.7.2
+
+# UX
+tqdm
+streamlit==1.36.0
+
+# Eval / plotting (optional)
+matplotlib
+scipy

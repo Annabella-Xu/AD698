@@ -1,0 +1,16 @@
+qid,primary_item,question
+Q01,Item 7,What are the primary drivers of revenue growth or decline reported by the company in fiscal 2024?
+Q02,Item 7,"How does management attribute margin pressure — to labor costs, inflation, supply chain, or macro factors?"
+Q03,Item 7,What does management say about liquidity and capital resources heading into the next fiscal year?
+Q04,Item 7,Does the company report material changes in segment revenue mix?
+Q05,Item 8,How is cash flow from operations reconciled to net income?
+Q06,Item 7,"What capital-expenditure categories are disclosed, and are any linked to technology or AI investment?"
+Q07,Item 7A,"What interest-rate risk is disclosed, and how is it quantified (VaR, sensitivity, hedge notional)?"
+Q08,Item 7A,"What foreign-exchange risk is disclosed, and which currencies are named?"
+Q09,Item 7A,"Is commodity or input-cost exposure discussed, and are derivatives used to hedge it?"
+Q10,Item 7A,How does management characterize equity-market or counterparty credit risk?
+Q11,Item 8,What revenue-recognition policy is described in the financial-statement footnotes?
+Q12,Item 8,"Does the company report goodwill or intangible-asset impairment in fiscal 2024? If so, how much?"
+Q13,Item 8,What are the stated income-tax rate and the reconciling items to the statutory rate?
+Q14,Item 8,What subsequent events are disclosed after the balance-sheet date?
+Q15,Item 8,"Does the auditor flag any critical audit matters, and what do they relate to?"

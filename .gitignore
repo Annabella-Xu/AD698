@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.ipynb_checkpoints/
+
+# Project caches & generated artifacts (regenerate from raw filings)
+.cache/
+AD698_cache/
+AD698_outputs/
+*.npy
+*.faiss
+*.index
+
+# Large local data (keep filings out of git; users drop their own into data/filings/)
+data/filings/
+*.htm
+*.html
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+
+# Secrets — never commit API keys
+.env.local
+secrets.json
+
+# Streamlit feedback log (regenerated per-deployment)
+feedback.csv

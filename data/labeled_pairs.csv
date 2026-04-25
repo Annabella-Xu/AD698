@@ -1,0 +1,26 @@
+qid,question,gold_item,gold_company,gold_chunk_id_contains,labeling_hint,notes
+L01,liquidity and capital resources position,Item 7,,,Look for a chunk in Item 7 that contains the phrase "Liquidity and Capital Resources" as a subheading; pick a firm with material cash position discussion.,TO LABEL
+L02,interest rate risk sensitivity analysis,Item 7A,,,Item 7A chunk discussing interest-rate sensitivity in basis-points or a +/- 100bp scenario.,TO LABEL
+L03,revenue recognition accounting policy,Item 8,,,"Item 8 footnote titled ""Revenue Recognition"" or ""Revenue from Contracts with Customers"" (ASC 606).",TO LABEL
+L04,foreign currency exchange rate hedging,Item 7A,,,Item 7A chunk naming specific currencies (EUR/GBP/JPY) and hedge instruments (forwards/options).,TO LABEL
+L05,goodwill impairment testing and result,Item 8,,,"Item 8 footnote ""Goodwill and Intangibles""; look for quantitative impairment test result.",TO LABEL
+L06,operating cash flow reconciliation to net income,Item 8,,,"Item 8 chunk showing the indirect-method reconciliation (net income + D&A + working-capital changes).",TO LABEL
+L07,segment reporting and revenue by geography,Item 7,,,Item 7 MD&A chunk discussing geographic or product-segment revenue mix.,TO LABEL
+L08,commodity price hedging instruments,Item 7A,,,Item 7A chunk naming a commodity (oil/gas/aluminum) and the derivative used.,TO LABEL
+L09,stock based compensation expense,Item 8,,,"Item 8 footnote ""Stock-Based Compensation"" with a dollar expense figure.",TO LABEL
+L10,income tax rate reconciliation to statutory,Item 8,,,"Item 8 ""Income Taxes"" footnote showing effective-rate reconciliation to 21%.",TO LABEL
+L11,critical accounting estimates disclosure,Item 7,,,"Item 7 subheading ""Critical Accounting Estimates"" — one chunk per material estimate.",TO LABEL
+L12,debt maturities and contractual obligations,Item 7,,,Item 7 contractual-obligations table discussion OR nearest surrounding text.,TO LABEL
+L13,revenue growth drivers year over year,Item 7,,,"Item 7 MD&A chunk explaining YoY revenue change (unit growth, pricing, FX, acquisitions).",TO LABEL
+L14,gross margin trend and cost of revenue drivers,Item 7,,,Item 7 chunk explaining gross-margin movement and the cost components driving it.,TO LABEL
+L15,derivatives and risk management instruments,Item 7A,,,Item 7A chunk on the derivatives program (cash-flow vs fair-value hedges).,TO LABEL
+L16,deferred revenue and contract liabilities,Item 8,,,"Item 8 footnote ""Contract Balances"" or ""Deferred Revenue"".",TO LABEL
+L17,allowance for credit losses methodology,Item 8,,,"Item 8 footnote on CECL / allowance for expected credit losses.",TO LABEL
+L18,operating expenses breakdown research development,Item 7,,,Item 7 chunk breaking out R&D vs SG&A vs other opex.,TO LABEL
+L19,counterparty credit risk exposure,Item 7A,,,Item 7A chunk on counterparty exposure (usually discussing high-grade counterparties).,TO LABEL
+L20,subsequent events after balance sheet date,Item 8,,,"Item 8 final footnote titled ""Subsequent Events"".",TO LABEL
+L21,capital expenditure plans fiscal 2025,Item 7,,,"Item 7 forward-looking capex narrative; often under ""Investing Activities"" or ""Capital Expenditures"".",TO LABEL (bonus — 21st pair for statistical margin)
+L22,inflation impact on input costs,Item 7,,,"Item 7 chunk explicitly naming inflation as a margin / cost pressure.",TO LABEL (bonus)
+L23,equity market risk exposure,Item 7A,,,Item 7A chunk on marketable-securities sensitivity or equity-price VaR.,TO LABEL (bonus)
+L24,pension plan funded status,Item 8,,,"Item 8 footnote ""Employee Benefit Plans"" with funded-status table discussion.",TO LABEL (bonus)
+L25,critical audit matters raised by auditor,Item 8,,,"Item 8 auditor's report section titled ""Critical Audit Matters"" — not every filing has one.",TO LABEL (bonus)
