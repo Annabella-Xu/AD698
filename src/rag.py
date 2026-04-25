@@ -46,9 +46,9 @@ from typing import Iterable, Optional
 import numpy as np
 import pandas as pd
 
-# Heavy deps (BeautifulSoup, sentence-transformers, faiss, tiktoken) are imported
-# lazily inside the functions that need them, so `--help` and `ask` stay snappy
-# even before the index is built.
+# Heavy deps (BeautifulSoup, sentence-transformers) are imported lazily inside
+# the functions that need them, so `--help` and `ask` stay snappy even before
+# the index is built.
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,6 @@ class Config:
     # Chunking (token-aware, not character-aware — downstream models bill in tokens)
     chunk_tokens: int = 500
     chunk_overlap: int = 50
-    token_encoder: str = "cl100k_base"  # GPT-3.5/4 compatible
 
     # Embeddings — BGE-small chosen for (a) strong finance performance on MTEB,
     # (b) 384-dim keeps the index small, (c) fully open weights, no API key.
@@ -276,13 +275,13 @@ def chunk_text(text: str, cfg: Config = CONFIG) -> list[str]:
       2. Pack sentences greedily into chunks capped at ``chunk_tokens``.
       3. Carry the tail of each chunk (up to ``chunk_overlap`` tokens)
          into the next chunk to preserve context across boundaries.
-      4. Ultra-long sentences (>cap) fall back to raw token windowing —
-         rare in 10-Ks but happens with malformed sentence-end punctuation.
-    """
-    import tiktoken
+      4. Ultra-long sentences (>cap) fall back to word windowing — rare in
+         10-Ks but happens with malformed sentence-end punctuation.
 
-    enc = tiktoken.get_encoding(cfg.token_encoder)
-    tok_len = lambda s: len(enc.encode(s))
+    Token counting uses whitespace word count (~0.75 GPT-tokens per word).
+    Good enough for chunking decisions without the tiktoken dependency.
+    """
+    tok_len = lambda s: len(s.split())
 
     chunks: list[str] = []
     cur: list[str] = []
@@ -296,10 +295,10 @@ def chunk_text(text: str, cfg: Config = CONFIG) -> list[str]:
             if cur:
                 chunks.append(" ".join(cur))
                 cur, cur_tok = [], 0
-            tok_ids = enc.encode(sent)
-            step = cfg.chunk_tokens - cfg.chunk_overlap
-            for i in range(0, len(tok_ids), step):
-                chunks.append(enc.decode(tok_ids[i:i + cfg.chunk_tokens]))
+            words = sent.split()
+            step = max(1, cfg.chunk_tokens - cfg.chunk_overlap)
+            for i in range(0, len(words), step):
+                chunks.append(" ".join(words[i:i + cfg.chunk_tokens]))
             continue
 
         if cur_tok + st > cfg.chunk_tokens and cur:
@@ -326,9 +325,6 @@ def chunk_text(text: str, cfg: Config = CONFIG) -> list[str]:
 
 def build_chunks(section_rows: list[dict], cfg: Config = CONFIG) -> list[dict]:
     """Attach full provenance metadata to every chunk."""
-    import tiktoken
-
-    enc = tiktoken.get_encoding(cfg.token_encoder)
     out: list[dict] = []
     for r in section_rows:
         for i, piece in enumerate(chunk_text(r["text"], cfg)):
@@ -344,14 +340,16 @@ def build_chunks(section_rows: list[dict], cfg: Config = CONFIG) -> list[dict]:
                 "filing_year": r.get("filing_year"),
                 "item": r["item"],
                 "chunk_index": i,
-                "token_count": len(enc.encode(piece)),
+                "token_count": len(piece.split()),
                 "text": piece,
             })
     return out
 
 
 # ---------------------------------------------------------------------------
-# M3 — Embedding + FAISS + scoped retrieval
+# M3 — Embedding + cosine retrieval
+# Uses an in-memory numpy matrix and sklearn cosine_similarity. No FAISS —
+# our corpus (tens of thousands of chunks) is well within numpy's reach.
 # ---------------------------------------------------------------------------
 
 def _embed_corpus(chunks: list[dict], cfg: Config) -> np.ndarray:
@@ -369,8 +367,8 @@ def _embed_corpus(chunks: list[dict], cfg: Config) -> np.ndarray:
 
 @dataclass
 class Index:
-    """A loaded FAISS index + metadata, ready to query."""
-    faiss_index: object  # faiss.Index — opaque handle
+    """A loaded embedding matrix + metadata, ready to query."""
+    matrix: np.ndarray  # shape (n_chunks, dim), L2-normalized
     chunks_by_id: dict[str, dict]
     chunks_meta: list[dict]
     cfg: Config
@@ -378,19 +376,16 @@ class Index:
 
 
 def build_index(filings_dir: str, cache_dir: str, cfg: Config = CONFIG) -> Index:
-    """Run M1→M3 end-to-end: parse filings, chunk, embed, build FAISS index.
+    """Run M1→M3 end-to-end: parse filings, chunk, embed, build cosine index.
 
     Caches all intermediate artifacts under ``cache_dir`` so subsequent runs
     skip the expensive embedding step.
     """
-    import faiss
-
     os.makedirs(cache_dir, exist_ok=True)
     sections_path = os.path.join(cache_dir, "sections.jsonl")
     chunks_path = os.path.join(cache_dir, "chunks.jsonl")
     emb_path = os.path.join(cache_dir, "embeddings.npy")
     meta_path = os.path.join(cache_dir, "chunk_meta.jsonl")
-    index_path = os.path.join(cache_dir, "faiss.index")
 
     # --- M1: extraction ---
     if os.path.exists(sections_path):
@@ -439,25 +434,21 @@ def build_index(filings_dir: str, cache_dir: str, cfg: Config = CONFIG) -> Index
                 f.write(json.dumps(c) + "\n")
         print(f"[build] wrote {len(chunks):,} chunks")
 
-    # --- M3: embeddings + FAISS ---
-    if os.path.exists(emb_path) and os.path.exists(index_path):
+    # --- M3: embeddings ---
+    if os.path.exists(emb_path):
         embeddings = np.load(emb_path)
-        faiss_index = faiss.read_index(index_path)
-        print(f"[cache] loaded index with {faiss_index.ntotal:,} vectors")
+        print(f"[cache] loaded embeddings with {embeddings.shape[0]:,} vectors")
     else:
         embeddings = _embed_corpus(chunks, cfg)
         np.save(emb_path, embeddings)
-        faiss_index = faiss.IndexFlatIP(embeddings.shape[1])  # IP == cosine on normalized vectors
-        faiss_index.add(embeddings)
-        faiss.write_index(faiss_index, index_path)
         # Persist metadata without text so the index stays small
         with open(meta_path, "w") as f:
             for c in chunks:
                 f.write(json.dumps({k: v for k, v in c.items() if k != "text"}) + "\n")
-        print(f"[build] built index with {faiss_index.ntotal:,} vectors")
+        print(f"[build] built index with {embeddings.shape[0]:,} vectors")
 
     return Index(
-        faiss_index=faiss_index,
+        matrix=embeddings,
         chunks_by_id={c["chunk_id"]: c for c in chunks},
         chunks_meta=chunks,  # full records; memory-cheap for this corpus size
         cfg=cfg,
@@ -468,11 +459,12 @@ def retrieve(index: Index, query: str, allowed_items: list[str] | None = None,
              k: int | None = None, over_fetch: int = 40) -> list[dict]:
     """Return the top-``k`` chunks whose Item is in ``allowed_items``.
 
-    The allow-list filter is applied AFTER FAISS search. We over-fetch k*40
+    The allow-list filter is applied AFTER cosine ranking. We over-fetch k*40
     candidates so that even when the top hits are out-of-scope we still
     return k allowed chunks.
     """
     from sentence_transformers import SentenceTransformer
+    from sklearn.metrics.pairwise import cosine_similarity
 
     cfg = index.cfg
     allowed = set(allowed_items or cfg.allowed_items)
@@ -480,18 +472,18 @@ def retrieve(index: Index, query: str, allowed_items: list[str] | None = None,
     if index.embed_model_obj is None:
         index.embed_model_obj = SentenceTransformer(cfg.embed_model)
 
-    q_vec = index.embed_model_obj.encode([query], normalize_embeddings=True).astype("float32")
-    sims, ids = index.faiss_index.search(q_vec, k * over_fetch)
+    q_vec = index.embed_model_obj.encode([query], normalize_embeddings=True)
+    sims = cosine_similarity(q_vec, index.matrix)[0]
+    n_fetch = min(len(sims), k * over_fetch)
+    top_ids = np.argsort(-sims)[:n_fetch]
 
     results: list[dict] = []
-    for score, vec_id in zip(sims[0], ids[0]):
-        if vec_id < 0:
-            continue
+    for vec_id in top_ids:
         meta = index.chunks_meta[vec_id]
         if meta["item"] not in allowed:
             continue  # HARD section-scoping — never relaxed
         results.append({
-            "score": float(score),
+            "score": float(sims[vec_id]),
             "chunk_id": meta["chunk_id"],
             "item": meta["item"],
             "company": meta.get("company"),
