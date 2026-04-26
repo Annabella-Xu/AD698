@@ -1,0 +1,18 @@
+# Most things (numpy, pandas, scikit-learn, beautifulsoup4, tqdm, openai,
+# google-generativeai, streamlit) are preinstalled in Colab. We don't pin
+# them — pinning was the source of NumPy 2.x ABI conflicts. Local users:
+# `pip install -r requirements.txt` will pick up modern compatible versions.
+
+sentence-transformers
+scikit-learn
+numpy
+pandas
+beautifulsoup4
+tqdm
+
+# LLM backends (both optional; notebook falls back to 'mock' if keys missing)
+openai
+google-generativeai
+
+# Streamlit bonus app
+streamlit
