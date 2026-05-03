@@ -6,7 +6,7 @@ Launch locally:
     streamlit run app.py
 
 What it does:
-  1. Builds (or loads from cache) the section-scoped FAISS index.
+  1. Builds (or loads from cache) the section-scoped cosine-similarity embedding matrix.
   2. Gives the user a question box + optional firm filter.
   3. Displays the JSON answer with clickable citations showing the underlying
      chunk text so graders can verify grounding.
@@ -102,7 +102,7 @@ if ask:
     # still applies independently.
     scoped_q = question if firm == "(any)" else f"{question} (Firm: {firm})"
     with st.spinner("Retrieving and generating…"):
-        result = rag_answer(index, scoped_q)
+        result = rag_answer(index, scoped_q, company=None if firm == "(any)" else firm)
 
     st.subheader("Answer")
     if result.get("refused"):

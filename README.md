@@ -20,6 +20,7 @@ out-of-scope text) and a **strict JSON citation contract** (every answer traces 
    - `'mock'` — deterministic stub, no API key (dry run)
    - `'openai'` — needs `OPENAI_API_KEY` in Colab Secrets
    - `'gemini'` — needs `GEMINI_API_KEY` in Colab Secrets
+4. Review outputs under `AD698_outputs/`.
 
 ### Option B — Claude Code / local CLI
 
@@ -31,7 +32,7 @@ pip install -r requirements.txt
 mkdir -p data/filings
 cp your-10k-files/*.htm data/filings/
 
-# run the full pipeline: extract → chunk → embed → index → ready
+# run the full pipeline: extract → chunk → embed → cosine retrieval index
 python -m src.rag build --filings-dir data/filings --cache-dir .cache
 
 # interactive Q&A
@@ -79,9 +80,9 @@ logger (writes to `.cache/feedback.csv`).
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ALLOWED_ITEMS` | `['Item 6', 'Item 7', 'Item 7A', 'Item 8']` | Hard allow-list applied after FAISS search |
-| `CHUNK_TOKENS` | `500` | Target tokens per chunk |
-| `CHUNK_OVERLAP` | `50` | Token overlap between consecutive chunks |
+| `ALLOWED_ITEMS` | `['Item 6', 'Item 7', 'Item 7A', 'Item 8']` | Hard allow-list applied after cosine search and before generation |
+| `CHUNK_TOKENS` | `500` | Approximate token target per chunk, using whitespace-token estimates |
+| `CHUNK_OVERLAP` | `50` | Approximate token overlap between consecutive chunks |
 | `EMBED_MODEL` | `BAAI/bge-small-en-v1.5` | 384-dim open embedding model |
 | `TOP_K` | `5` | Chunks returned per query |
 | `MIN_SIM` | `0.20` | Refuse if top-1 cosine < this threshold |
@@ -94,8 +95,8 @@ logger (writes to `.cache/feedback.csv`).
 | Milestone | Deliverable | Location |
 |---|---|---|
 | **M1** | Item 6/7/7A/8 extraction + cleaning (TOC bleed, signatures, tables → placeholder) | notebook §1 · `src/rag.py:extract_items` |
-| **M2** | Token-aware chunking (≈500 tok, 50 overlap) with full provenance metadata | notebook §2 · `src/rag.py:chunk_text` |
-| **M3** | BGE-small embeddings + FAISS IndexFlatIP + **strict post-filter** by Item | notebook §3 · `src/rag.py:retrieve` |
+| **M2** | Approximate token-aware chunking (≈500 tokens, 50 overlap) with full provenance metadata | notebook §2 · `src/rag.py:chunk_text` |
+| **M3** | BGE-small embeddings + in-memory embedding matrix + cosine-similarity retrieval with strict Item filtering | notebook §3 · `src/rag.py:retrieve` |
 | **M4** | Grounded generation: JSON contract `{answer, citations, refused}`; refusal below `MIN_SIM` | notebook §4 · `src/rag.py:rag_answer` |
 | **M5** | Eval: Hit@k vs. human labels, citation coverage, cross-Item leakage, manual hallucination review | notebook §5 · `src/rag.py:evaluate` |
 
@@ -122,7 +123,7 @@ Every non-refused answer returns strict JSON:
 
 ```json
 {
-  "answer":   "Apple discusses a ~3% YoY revenue decline driven by Mac and iPad softness, offset by Services growth.",
+  "answer": "Management attributes revenue movement to disclosed drivers in the cited Item 7 chunks.",
   "citations": [
     {"chunk_id": "AAPL-Item7-012-a3b9c2", "item": "Item 7"},
     {"chunk_id": "AAPL-Item7-013-8f1de4", "item": "Item 7"}

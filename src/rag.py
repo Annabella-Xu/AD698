@@ -13,10 +13,11 @@ callable from:
 
 Design invariants (do not relax without updating the design brief):
 
-  1. **Hard section scoping.** The allow-list filter is applied *after* FAISS
-     search against chunk metadata — the LLM never sees out-of-scope text.
-     This is enforced by filtering, not by prompt instruction, because
-     prompt instructions are not reliably honored by LLMs.
+  1. **Hard section scoping.** Retrieval uses cosine similarity over an in-memory
+     embedding matrix, then filters candidates against chunk metadata before
+     answer generation. The LLM never sees out-of-scope text. This is enforced
+     by filtering, not by prompt instruction, because prompt instructions are
+     not reliably honored by LLMs.
 
   2. **Refuse below MIN_SIM.** If the top-1 cosine similarity is below the
      threshold, the system returns ``refused=True`` without calling the LLM.
@@ -435,17 +436,34 @@ def build_index(filings_dir: str, cache_dir: str, cfg: Config = CONFIG) -> Index
         print(f"[build] wrote {len(chunks):,} chunks")
 
     # --- M3: embeddings ---
-    if os.path.exists(emb_path):
-        embeddings = np.load(emb_path)
-        print(f"[cache] loaded embeddings with {embeddings.shape[0]:,} vectors")
+    def _load_validated_embeddings() -> np.ndarray | None:
+        """Use cached embeddings only when they match the current chunk IDs."""
+        if not (os.path.exists(emb_path) and os.path.exists(meta_path)):
+            return None
+        emb = np.load(emb_path)
+        with open(meta_path) as f:
+            cached_meta = [json.loads(l) for l in f]
+        current_ids = [c["chunk_id"] for c in chunks]
+        cached_ids = [m.get("chunk_id") for m in cached_meta]
+        if emb.shape[0] != len(current_ids):
+            print("[cache] ignored embeddings: row count does not match current chunks")
+            return None
+        if current_ids != cached_ids:
+            print("[cache] ignored embeddings: chunk IDs changed")
+            return None
+        return emb
+
+    embeddings = _load_validated_embeddings()
+    if embeddings is not None:
+        print(f"[cache] loaded validated embeddings with {embeddings.shape[0]:,} vectors")
     else:
         embeddings = _embed_corpus(chunks, cfg)
         np.save(emb_path, embeddings)
-        # Persist metadata without text so the index stays small
+        # Persist metadata without text so cache validation can detect stale chunks
         with open(meta_path, "w") as f:
             for c in chunks:
                 f.write(json.dumps({k: v for k, v in c.items() if k != "text"}) + "\n")
-        print(f"[build] built index with {embeddings.shape[0]:,} vectors")
+        print(f"[build] built embedding matrix with {embeddings.shape[0]:,} vectors")
 
     return Index(
         matrix=embeddings,
@@ -456,12 +474,12 @@ def build_index(filings_dir: str, cache_dir: str, cfg: Config = CONFIG) -> Index
 
 
 def retrieve(index: Index, query: str, allowed_items: list[str] | None = None,
-             k: int | None = None, over_fetch: int = 40) -> list[dict]:
-    """Return the top-``k`` chunks whose Item is in ``allowed_items``.
+             k: int | None = None, company: str | None = None,
+             ticker: str | None = None, cik: str | None = None) -> list[dict]:
+    """Return top-k chunks filtered by SEC Item and optional firm metadata.
 
-    The allow-list filter is applied AFTER cosine ranking. We over-fetch k*40
-    candidates so that even when the top hits are out-of-scope we still
-    return k allowed chunks.
+    This prevents cross-firm contamination: for firm-specific questions, pass
+    company, ticker, or CIK so ranking happens only inside that firm's chunks.
     """
     from sentence_transformers import SentenceTransformer
     from sklearn.metrics.pairwise import cosine_similarity
@@ -474,16 +492,30 @@ def retrieve(index: Index, query: str, allowed_items: list[str] | None = None,
 
     q_vec = index.embed_model_obj.encode([query], normalize_embeddings=True)
     sims = cosine_similarity(q_vec, index.matrix)[0]
-    n_fetch = min(len(sims), k * over_fetch)
-    top_ids = np.argsort(-sims)[:n_fetch]
+
+    candidate_ids: list[int] = []
+    for i, meta in enumerate(index.chunks_meta):
+        if meta.get("item") not in allowed:
+            continue
+        if company is not None and meta.get("company") != company:
+            continue
+        if ticker is not None and meta.get("ticker") != ticker:
+            continue
+        if cik is not None and str(meta.get("cik")) != str(cik):
+            continue
+        candidate_ids.append(i)
+
+    if not candidate_ids:
+        return []
+
+    candidate_ids_arr = np.array(candidate_ids)
+    ranked = candidate_ids_arr[np.argsort(-sims[candidate_ids_arr])[:k]]
 
     results: list[dict] = []
-    for vec_id in top_ids:
-        meta = index.chunks_meta[vec_id]
-        if meta["item"] not in allowed:
-            continue  # HARD section-scoping — never relaxed
+    for vec_id in ranked:
+        meta = index.chunks_meta[int(vec_id)]
         results.append({
-            "score": float(sims[vec_id]),
+            "score": float(sims[int(vec_id)]),
             "chunk_id": meta["chunk_id"],
             "item": meta["item"],
             "company": meta.get("company"),
@@ -492,8 +524,6 @@ def retrieve(index: Index, query: str, allowed_items: list[str] | None = None,
             "year": meta.get("filing_year"),
             "text": meta["text"],
         })
-        if len(results) >= k:
-            break
     return results
 
 
@@ -575,10 +605,49 @@ def _llm_generate(system: str, user: str, cfg: Config) -> dict:
     }
 
 
+
+
+def _validate_citations(out: dict, hits: list[dict]) -> dict:
+    """Only keep citations that point to retrieved chunks.
+
+    If the model invents a chunk_id or returns no valid citation for a
+    non-refused answer, force refusal so citation coverage is honest.
+    """
+    valid = {h["chunk_id"]: h for h in hits}
+    cleaned = []
+    for c in out.get("citations", []) or []:
+        cid = c.get("chunk_id")
+        if cid in valid:
+            h = valid[cid]
+            cleaned.append({
+                "chunk_id": cid,
+                "item": h["item"],
+                "company": h.get("company"),
+                "ticker": h.get("ticker"),
+                "score": h.get("score"),
+            })
+    out["citations"] = cleaned
+    if not out.get("refused") and not cleaned:
+        out["refused"] = True
+        out["answer"] = (
+            "The model did not provide valid citations from the retrieved context, "
+            "so the answer is refused."
+        )
+    return out
+
 def rag_answer(index: Index, question: str, allowed_items: list[str] | None = None,
-               k: int | None = None) -> dict:
+               k: int | None = None, company: str | None = None,
+               ticker: str | None = None, cik: str | None = None) -> dict:
     """Full pipeline: retrieve → refuse-or-generate → return cited JSON."""
-    hits = retrieve(index, question, allowed_items=allowed_items, k=k)
+    hits = retrieve(
+        index,
+        question,
+        allowed_items=allowed_items,
+        k=k,
+        company=company,
+        ticker=ticker,
+        cik=cik,
+    )
     if not hits or hits[0]["score"] < index.cfg.min_sim:
         return {
             "question": question,
@@ -591,6 +660,7 @@ def rag_answer(index: Index, question: str, allowed_items: list[str] | None = No
     out = _llm_generate(system, user, index.cfg)
     out.setdefault("citations", [])
     out.setdefault("refused", False)
+    out = _validate_citations(out, hits)
     out["question"] = question
     out["retrieved"] = hits
     return out
@@ -620,8 +690,10 @@ def evaluate(index: Index, labeled_pairs_path: str, k: int | None = None) -> dic
     for _, r in df.iterrows():
         if not isinstance(r["gold_chunk_id_contains"], str) or not r["gold_chunk_id_contains"]:
             continue  # un-labeled rows — skip rather than scoring as miss
-        hits = retrieve(index, r["question"], allowed_items=[r["gold_item"]], k=k)
-        hit = any(r["gold_chunk_id_contains"] in h["chunk_id"] for h in hits)
+        firm = r.get("gold_company") if "gold_company" in r and isinstance(r.get("gold_company"), str) and r.get("gold_company").strip() else None
+        hits = retrieve(index, r["question"], allowed_items=[r["gold_item"]], k=k, company=firm)
+        gold_id = r["gold_chunk_id_contains"]
+        hit = any(h["chunk_id"] == gold_id or gold_id in h["chunk_id"] for h in hits)
         rows.append({
             "qid": r["qid"],
             "gold_item": r["gold_item"],

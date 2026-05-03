@@ -27,18 +27,19 @@
 
 ## 🔒 Enforcement mechanism
 
-Section-scoping is implemented as a **post-retrieval hard filter** on chunk
-metadata, not as a prompt instruction:
+Section-scoping is implemented as a hard metadata filter after cosine similarity
+search and before answer generation, not as a prompt instruction:
 
 ```python
 # From src/rag.py:retrieve
-for score, vec_id in zip(sims[0], ids[0]):
-    meta = index.chunks_meta[vec_id]
-    if meta["item"] not in allowed:
+for i, meta in enumerate(index.chunks_meta):
+    if meta.get("item") not in allowed:
         continue   # HARD section-scoping — never relaxed
-    ...
+    if company is not None and meta.get("company") != company:
+        continue   # optional firm-level scope
+    candidate_ids.append(i)
 ```
 
 Prompt-only scoping is not reliable because LLMs do not always honor
-"only use these sources" instructions. Filtering at the retrieval layer
-means the model physically cannot see out-of-scope chunks.
+"only use these sources" instructions. Filtering at the retrieval layer means the model physically cannot see out-of-scope chunks.
+For firm-specific questions, retrieval can also be restricted by company name, ticker, or CIK to reduce cross-firm contamination.

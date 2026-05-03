@@ -11,7 +11,6 @@ __pycache__/
 AD698_cache/
 AD698_outputs/
 *.npy
-*.faiss
 *.index
 
 # Large local data (keep filings out of git; users drop their own into data/filings/)
